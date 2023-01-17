@@ -127,7 +127,7 @@ class UpDownIoServiceBase(object):
         elif os.environ.get('UPDOWN_API_KEY'):
             self.api_key = os.environ['UPDOWN_API_KEY']
         else:
-            raise ValueError("missing updownio api_key")
+            raise ValueError("missing updown api_key")
 
         if endpoint:
             self.endpoint = endpoint

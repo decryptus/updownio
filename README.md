@@ -28,6 +28,15 @@ updownio is a free and open-source, it's a python wrapper for the updown.io API.
 import updownio
 ```
 
+### Initialize service with arguments
+
+```python
+updown_checks = updownio.service('checks',
+                                 api_key  = 'xxxxxxxxxxx',
+                                 endpoint = 'https://example.org/api',
+                                 timeout  = 3600)
+```
+
 ### Endpoints
 
 #### Checks

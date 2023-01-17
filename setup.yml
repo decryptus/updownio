@@ -4,8 +4,8 @@ description: Client library for updown.io API.
 author: Adrien Delle Cave
 author_email: pypi@doowan.net
 copyright: '2023 Adrien Delle Cave'
-release: '0.0.4'
-version: '0.0.4'
+release: '0.0.5'
+version: '0.0.5'
 license: License GPL-3
 url: https://github.com/decryptus/updownio
 python_requires:
