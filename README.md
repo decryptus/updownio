@@ -164,7 +164,7 @@ recipients = updownio.service('recipients').list()
 ##### Add a new recipient
 
 ```python
-recipients = updownio.service('recipients').add(type = 'email',
+recipients = updownio.service('recipients').add(xtype = 'email',
                                                 value = 'xxxxxxxx',
                                                 data = {'selected': True})
 ```
