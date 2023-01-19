@@ -101,7 +101,7 @@ check = updownio.service('checks').add('https://example.org',
                                                'recipients': ['email:xxxxxxxx', 'slack:xxxxxxxx']})
 ```
 
-##### Update a new check
+##### Update a check
 
 Select check by token
 
@@ -191,7 +191,7 @@ status_page = updownio.service('status_pages').add(['xxxx', 'yyyy', 'zzzz'],
                                                            'description': 'bar'})
 ```
 
-##### Update a new status page
+##### Update a status page
 
 ```python
 status_page = updownio.service('status_pages').update(token = 'xxxx',
