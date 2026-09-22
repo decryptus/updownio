@@ -1,3 +1,13 @@
+updownio (0.1.0) unstable; urgency=medium
+
+  * Isolate service clients and validate configuration.
+  * Fix arrays, nested headers, empty responses and URL-based lookups.
+  * Preserve caller data, prevent credential forwarding on redirects.
+  * Add offline regression tests, CI, automatic tags and PyPI publishing.
+  * Repair source distributions and document Python 3.10+ support.
+
+ -- Adrien DELLE CAVE (Decryptus) <adc@doowan.net>  Tue, 22 Sep 2026 12:00:00 +0000
+
 updownio (0.0.7) unstable; urgency=medium
 
   * Fixed README.md.

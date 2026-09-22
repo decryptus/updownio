@@ -6,7 +6,7 @@
 
 import logging
 
-from updownio.service import UpDownIoServiceBase, SERVICES
+from updownio.service import UpDownIoServiceBase, SERVICES, copy_data, form_data, string_array, identifier
 
 
 _DEFAULT_API_PATH = "api/checks"
@@ -22,41 +22,22 @@ class UpDownIoChecks(UpDownIoServiceBase):
         return _DEFAULT_API_PATH
 
     @staticmethod
-    def _build_disabled_locations(disabled_locations):
-        r = []
-
-        if not isinstance(disabled_locations, (list, tuple)):
-            return r
-
-        for x in enumerate(disabled_locations):
-            if isinstance(x, str):
-                r.append(('disabled_locations[]', x))
-
-        return r
+    def _build_disabled_locations(values):
+        return string_array("disabled_locations", values)
 
     @staticmethod
-    def _build_recipients(recipients):
-        r = []
-
-        if not isinstance(recipients, (list, tuple)):
-            return r
-
-        for x in enumerate(recipients):
-            if isinstance(x, str):
-                r.append(('recipients[]', x))
-
-        return r
+    def _build_recipients(values):
+        return string_array("recipients", values)
 
     def _match_by_url(self, url):
         xlist = self.list()
         if not xlist:
             return None
 
-        for x in xlist:
-            if x['url'] == url:
-                return x
-
-        return None
+        matches = [x for x in xlist if x.get('url') == url]
+        if len(matches) > 1:
+            raise ValueError("multiple checks match this URL; use a token")
+        return matches[0] if matches else None
 
     def _fetch_token_from_url(self, url):
         x = self._match_by_url(url)
@@ -73,9 +54,12 @@ class UpDownIoChecks(UpDownIoServiceBase):
             raise ValueError("missing arguments token and url")
 
         if token:
-            return self.mk_api_call(token, params = params)
+            return self.mk_api_call(identifier(token), params = params)
 
-        return self._match_by_url(url)
+        match = self._match_by_url(url)
+        if match is not None and params:
+            return self.mk_api_call(identifier(match['token']), params=params)
+        return match
 
     def downtimes(self, token = None, url = None, params = None):
         if not token and not url:
@@ -86,7 +70,7 @@ class UpDownIoChecks(UpDownIoServiceBase):
             if not token:
                 return None
 
-        return self.mk_api_call("%s/downtimes" % token,
+        return self.mk_api_call("%s/downtimes" % identifier(token),
                                 params = params)
 
     def metrics(self, token = None, url = None, params = None):
@@ -98,51 +82,26 @@ class UpDownIoChecks(UpDownIoServiceBase):
             if not token:
                 return None
 
-        return self.mk_api_call("%s/metrics" % token,
+        return self.mk_api_call("%s/metrics" % identifier(token),
                                 params = params)
 
-    def add(self, url, data = None):
-        if not isinstance(data, dict):
-            data = {}
+    def add(self, url=None, data=None):
+        data = copy_data(data)
+        if url is not None:
+            data['url'] = url
+        if not data.get('url') and data.get('type') != 'pulse':
+            raise ValueError("url is required except for pulse checks")
+        return self.mk_api_call(method='POST', data=form_data(data))
 
-        data['url']        = url
-        disabled_locations = data.pop('disabled_locations', None)
-        recipients         = data.pop('recipients', None)
-        data               = list(data.items())
-
-        if disabled_locations:
-            data.extend(self._build_disabled_locations(disabled_locations))
-
-        if recipients:
-            data.extend(self._build_recipients(recipients))
-
-        return self.mk_api_call(method = 'POST', data = data)
-
-    def update(self, token = None, url = None, data = None):
-        if not isinstance(data, dict):
-            data = {}
-
+    def update(self, token=None, url=None, data=None):
+        data = copy_data(data)
         if not token and not url:
             raise ValueError("missing arguments token and url")
-
-        if not token and url:
+        if not token:
             token = self._fetch_token_from_url(url)
             if not token:
                 return None
-
-        disabled_locations = data.pop('disabled_locations', None)
-        recipients         = data.pop('recipients', None)
-        data               = list(data.items())
-
-        if disabled_locations:
-            data.extend(self._build_disabled_locations(disabled_locations))
-
-        if recipients:
-            data.extend(self._build_recipients(recipients))
-
-        return self.mk_api_call("%s" % token,
-                                method = 'PUT',
-                                data = data)
+        return self.mk_api_call(identifier(token), method='PUT', data=form_data(data))
 
     def delete(self, token = None, url = None):
         if not token and not url:
@@ -153,7 +112,7 @@ class UpDownIoChecks(UpDownIoServiceBase):
             if not token:
                 return None
 
-        r = self.mk_api_call("%s" % token,
+        r = self.mk_api_call(identifier(token),
                              method = 'DELETE')
         if not r:
             return False
@@ -161,7 +120,4 @@ class UpDownIoChecks(UpDownIoServiceBase):
         return bool(r.get('deleted'))
 
 
-if __name__ != "__main__":
-    def _start():
-        SERVICES.register(UpDownIoChecks())
-    _start()
+SERVICES.register(UpDownIoChecks)

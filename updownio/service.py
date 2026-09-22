@@ -1,160 +1,179 @@
-# -*- coding: utf-8 -*-
-# Copyright (C) 2023 Adrien Delle Cave
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""updownio.service"""
-
+"""Shared HTTP transport and service registry."""
 
 import abc
+import math
 import os
+from email.utils import formatdate
+from urllib.parse import quote, urlsplit, urlunsplit
 
-from datetime import datetime
-
-import logging
 import requests
 
-from sonicprobe.libs import urisup
 
+class UpDownIoError(LookupError):
+    """API failure; messages deliberately exclude request and response bodies."""
 
-LOG = logging.getLogger('updownio.service')
+    def __init__(self, message, status_code=None):
+        super().__init__(message)
+        self.status_code = status_code
 
 
 class UpDownIoServices(dict):
     def register(self, service):
-        if not isinstance(service, UpDownIoServiceBase):
-            raise TypeError("Invalid Service class. (class: %r)" % service)
-        return dict.__setitem__(self, service.SERVICE_NAME, service)
+        # Accept legacy instance registration, but store constructors only.
+        cls = service if isinstance(service, type) else type(service)
+        if not issubclass(cls, UpDownIoServiceBase):
+            raise TypeError("Invalid service class")
+        self[cls.SERVICE_NAME] = cls
+
 
 SERVICES = UpDownIoServices()
 
-_DEFAULT_ACCEPT          = "application/json"
-_DEFAULT_ACCEPT_ENCODING = "gzip"
-_DEFAULT_ENDPOINT        = "https://updown.io"
-_DEFAULT_TIMEOUT         = 60
 
-_DATE_FORMAT_GMT         = '%a, %d %b %Y %H:%M:%S GMT'
+def copy_data(data):
+    if data is None:
+        return {}
+    if not isinstance(data, dict):
+        raise TypeError("data must be a dictionary")
+    return dict(data)
 
 
-class UpDownIoServiceBase(object):
-    __metaclass__ = abc.ABCMeta
+def string_array(name, values):
+    if not isinstance(values, (list, tuple)) or any(
+        not isinstance(value, str) or not value for value in values
+    ):
+        raise ValueError("%s must be a list or tuple of non-empty strings" % name)
+    return [(name + "[]", value) for value in values] or [(name + "[]", "")]
 
-    @abc.abstractproperty
-    def SERVICE_NAME(self):
-        return
+
+def form_data(data):
+    """Encode Rails-style arrays/hashes, retaining explicitly empty arrays."""
+    result = []
+    for key, value in data.items():
+        if key in ("recipients", "disabled_locations", "checks") and value is not None:
+            result.extend(string_array(key, value))
+        elif key == "custom_headers" and value is not None and not isinstance(value, dict):
+            raise ValueError("custom_headers must map strings to strings")
+        elif isinstance(value, (list, tuple)):
+            result.extend(string_array(key, value))
+        elif isinstance(value, dict):
+            for subkey, subvalue in value.items():
+                if not isinstance(subkey, str) or not isinstance(subvalue, str):
+                    raise ValueError("%s must map strings to strings" % key)
+                result.append(("%s[%s]" % (key, subkey), subvalue))
+            if not value:
+                raise ValueError("An empty mapping cannot be encoded unambiguously: %s" % key)
+        elif value is not None:
+            result.append((key, str(value).lower() if isinstance(value, bool) else value))
+    return result
+
+
+def identifier(value):
+    if not isinstance(value, str) or not value or value in (".", ".."):
+        raise ValueError("identifier must be a non-empty string")
+    return quote(value, safe="")
+
+
+def validated_timeout(value):
+    if isinstance(value, bool):
+        raise ValueError("timeout must be a positive finite number")
+    try:
+        value = float(value)
+    except (TypeError, ValueError):
+        raise ValueError("timeout must be a positive finite number") from None
+    if not math.isfinite(value) or value <= 0:
+        raise ValueError("timeout must be a positive finite number")
+    return value
+
+
+class UpDownIoServiceBase(abc.ABC):
+    SERVICE_NAME = None
 
     def __init__(self):
-        self.api_key         = None
-        self.endpoint        = None
-        self.accept          = None
+        self.api_key = None
+        self.endpoint = None
+        self.accept = None
         self.accept_encoding = None
-        self.timeout         = None
+        self.timeout = None
 
     @staticmethod
     @abc.abstractmethod
     def get_default_api_path():
-        return
+        """Return the service path relative to the origin."""
 
     @staticmethod
     def get_default_accept():
-        return _DEFAULT_ACCEPT
+        return "application/json"
 
     @staticmethod
     def get_default_accept_encoding():
-        return _DEFAULT_ACCEPT_ENCODING
+        return "gzip"
 
     @staticmethod
     def get_default_endpoint():
-        return _DEFAULT_ENDPOINT
+        return "https://updown.io"
 
     @staticmethod
     def get_default_timeout():
-        return _DEFAULT_TIMEOUT
+        return 60
 
     @staticmethod
     def get_date():
-        return datetime.utcnow().strftime(_DATE_FORMAT_GMT)
+        return formatdate(usegmt=True)
 
-    def build_api_uri(self, path = None, query = None, fragment = None):
-        uri = list(urisup.uri_help_split(self.endpoint))
-        uri[2:5] = (path, query, fragment)
+    def build_api_uri(self, path=None, query=None, fragment=None):
+        uri = urlsplit(self.endpoint)
+        return urlunsplit((uri.scheme, uri.netloc, path or "", query or "", fragment or ""))
 
-        return urisup.uri_help_unsplit(uri)
+    def mk_api_headers(self, date=None):
+        return {"Accept": self.accept, "Accept-Encoding": self.accept_encoding,
+                "Date": date or self.get_date(), "X-Api-Key": self.api_key}
 
-    def mk_api_headers(self, date = None):
-        if not date:
-            date = self.get_date()
-
-        return {'Accept': self.accept,
-                'Accept-Encoding': self.accept_encoding,
-                'Date': date,
-                'X-Api-Key': self.api_key}
-
-    def mk_api_call(self, path = "", method = 'GET', raw_results = False, timeout = None, params = None, data = None):
-        if path:
-            path = "/%s" % path.strip('/')
-        else:
-            path = ""
-
-        r = None
-
+    def mk_api_call(self, path="", method="GET", raw_results=False,
+                    timeout=None, params=None, data=None):
+        method = method.upper()
+        if method not in ("GET", "POST", "PUT", "DELETE"):
+            raise ValueError("unsupported HTTP method")
+        suffix = "/" + path.strip("/") if path else ""
+        uri = self.build_api_uri("/" + self.get_default_api_path() + suffix)
+        timeout = self.timeout if timeout is None else validated_timeout(timeout)
+        if isinstance(data, dict):
+            data = form_data(data)
+        if isinstance(params, dict):
+            params = {k: str(v).lower() if isinstance(v, bool) else v for k, v in params.items()}
+        # Do not forward the custom API-key header to redirect destinations.
+        response = getattr(requests, method.lower())(
+            uri, params=params, data=data, headers=self.mk_api_headers(),
+            timeout=timeout, allow_redirects=False)
+        if raw_results:
+            return response  # The caller owns and closes the response.
         try:
-            uri = self.build_api_uri("/%s%s" % (self.get_default_api_path(), path))
-
-            r = getattr(requests, method.lower())(uri,
-                                                  params  = params,
-                                                  data    = data,
-                                                  headers = self.mk_api_headers(),
-                                                  timeout = timeout or self.timeout)
-
-            if raw_results:
-                return r
-
-            if not r or r.status_code not in (200, 201) or not r.text:
-                LOG.error("unable to call uri: %r. (params: %r, data: %r)", uri, params, data)
-                raise LookupError("unable to call uri: %r. (response: %r)" % (uri, r.text))
-
-            res = r.json()
-            if not res:
-                raise LookupError("invalid response for %r" % path)
-
-            return res
+            if not 200 <= response.status_code < 300:
+                raise UpDownIoError("updown.io API returned HTTP %s" % response.status_code,
+                                    response.status_code)
+            if response.status_code == 204:
+                return None
+            try:
+                return response.json()
+            except ValueError:
+                raise UpDownIoError("updown.io API returned invalid JSON", response.status_code) from None
         finally:
-            if r:
-                r.close()
+            response.close()
 
-    def init(self, api_key = None, endpoint = None, timeout = None, accept = None, accept_encoding = None):
-        if api_key:
-            self.api_key = api_key
-        elif os.environ.get('UPDOWN_API_KEY'):
-            self.api_key = os.environ['UPDOWN_API_KEY']
-        else:
-            raise ValueError("missing updown api_key")
-
-        if endpoint:
-            self.endpoint = endpoint
-        elif os.environ.get('UPDOWN_ENDPOINT'):
-            self.endpoint = os.environ['UPDOWN_ENDPOINT']
-        else:
-            self.endpoint = self.get_default_endpoint()
-
-        if accept:
-            self.accept = accept
-        elif os.environ.get('UPDOWN_ACCEPT'):
-            self.accept = os.environ['UPDOWN_ACCEPT']
-        else:
-            self.accept = self.get_default_accept()
-
-        if accept_encoding:
-            self.accept_encoding = accept_encoding
-        elif os.environ.get('UPDOWN_ACCEPT_ENCODING'):
-            self.accept_encoding = os.environ['UPDOWN_ACCEPT_ENCODING']
-        else:
-            self.accept_encoding = self.get_default_accept_encoding()
-
-        if timeout:
-            self.timeout = timeout
-        elif os.environ.get('UPDOWN_TIMEOUT'):
-            self.timeout = os.environ['UPDOWN_TIMEOUT']
-        else:
-            self.timeout = self.get_default_timeout()
-
+    def init(self, api_key=None, endpoint=None, timeout=None, accept=None, accept_encoding=None):
+        def setting(value, name, default=None):
+            return value if value is not None else os.environ.get(name, default)
+        api_key = setting(api_key, "UPDOWN_API_KEY")
+        if not isinstance(api_key, str) or not api_key.strip() or "\n" in api_key or "\r" in api_key:
+            raise ValueError("missing or invalid updown api_key")
+        endpoint = setting(endpoint, "UPDOWN_ENDPOINT", self.get_default_endpoint())
+        uri = urlsplit(endpoint)
+        if uri.scheme not in ("http", "https") or not uri.hostname or uri.username or uri.password or uri.query or uri.fragment:
+            raise ValueError("endpoint must be an HTTP(S) URL without credentials, query or fragment")
+        # Legacy endpoint paths are replaced by /api/<service>.
+        self.api_key = api_key
+        self.endpoint = endpoint
+        self.timeout = validated_timeout(setting(timeout, "UPDOWN_TIMEOUT", self.get_default_timeout()))
+        self.accept = setting(accept, "UPDOWN_ACCEPT", self.get_default_accept())
+        self.accept_encoding = setting(accept_encoding, "UPDOWN_ACCEPT_ENCODING", self.get_default_accept_encoding())
         return self

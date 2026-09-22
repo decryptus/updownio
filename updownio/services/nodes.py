@@ -6,7 +6,7 @@
 
 import logging
 
-from updownio.service import UpDownIoServiceBase, SERVICES
+from updownio.service import UpDownIoServiceBase, SERVICES, copy_data, form_data, string_array, identifier
 
 
 _DEFAULT_API_PATH = "api/nodes"
@@ -24,6 +24,9 @@ class UpDownIoNodes(UpDownIoServiceBase):
     def list(self):
         return self.mk_api_call()
 
+    def ips(self):
+        return self.mk_api_call('/ips')
+
     def ipv4(self):
         return self.mk_api_call('/ipv4')
 
@@ -31,7 +34,4 @@ class UpDownIoNodes(UpDownIoServiceBase):
         return self.mk_api_call('/ipv6')
 
 
-if __name__ != "__main__":
-    def _start():
-        SERVICES.register(UpDownIoNodes())
-    _start()
+SERVICES.register(UpDownIoNodes)

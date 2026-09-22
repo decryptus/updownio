@@ -1,17 +1,13 @@
-# -*- coding: utf-8 -*-
-# Copyright (C) 2023 Adrien Delle Cave
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""updownio"""
+"""Python client for updown.io."""
+from updownio.service import SERVICES, UpDownIoError
+from updownio.services import checks, nodes, recipients, status_pages
 
-
-import logging
-
-from updownio.services import *
-from updownio.service import SERVICES
+__all__ = ["service", "UpDownIoError"]
 
 
 def service(name, **kwargs):
+    """Create an independent client for a named service."""
     if name not in SERVICES:
         raise ValueError("invalid service: %r" % name)
-
-    return SERVICES[name].init(**kwargs)
+    return SERVICES[name]().init(**kwargs)
