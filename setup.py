@@ -27,7 +27,7 @@ setup(
     author_email                  = setup_cfg['author_email'],
     license                       = setup_cfg['license'],
     url                           = setup_cfg['url'],
-    packages                      = find_packages(),
+    packages                      = find_packages(include=["updownio", "updownio.*"]),
     install_requires              = requirements,
     python_requires               = ', '.join(setup_cfg['python_requires']),
     classifiers                   = setup_cfg['classifiers'],

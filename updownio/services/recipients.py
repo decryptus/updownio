@@ -6,7 +6,7 @@
 
 import logging
 
-from updownio.service import UpDownIoServiceBase, SERVICES
+from updownio.service import UpDownIoServiceBase, SERVICES, copy_data, form_data, string_array, identifier
 
 
 _DEFAULT_API_PATH = "api/recipients"
@@ -25,8 +25,7 @@ class UpDownIoRecipients(UpDownIoServiceBase):
         return self.mk_api_call()
 
     def add(self, xtype, value, data = None):
-        if not isinstance(data, dict):
-            data = {}
+        data = copy_data(data)
 
         data['type']  = xtype
         data['value'] = value
@@ -34,7 +33,7 @@ class UpDownIoRecipients(UpDownIoServiceBase):
         return self.mk_api_call(method = 'POST', data = data)
 
     def delete(self, xid):
-        r = self.mk_api_call("%s" % xid,
+        r = self.mk_api_call(identifier(xid),
                              method = 'DELETE')
         if not r:
             return False
@@ -42,7 +41,4 @@ class UpDownIoRecipients(UpDownIoServiceBase):
         return bool(r.get('deleted'))
 
 
-if __name__ != "__main__":
-    def _start():
-        SERVICES.register(UpDownIoRecipients())
-    _start()
+SERVICES.register(UpDownIoRecipients)

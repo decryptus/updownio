@@ -1,0 +1,4 @@
+include requirements.txt setup.yml VERSION RELEASE CHANGELOG
+recursive-include tests *.py
+recursive-include docs *.md *.rst *.py *.txt
+recursive-include .github/scripts *.py
